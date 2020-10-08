@@ -11,7 +11,7 @@ class BaseModel():
     @staticmethod
     def modify_commandline_options(parser, is_train):
         return parser
-    
+
     def name(self):
         return 'BaseModel'
 
@@ -152,7 +152,7 @@ class BaseModel():
         if isinstance(net, torch.nn.DataParallel):
             net = net.module
         net.load_state_dict(state_dict)
-            
+
     # print network information
     def print_networks(self, verbose=False):
         for name in self.model_names:

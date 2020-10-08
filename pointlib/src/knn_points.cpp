@@ -20,9 +20,9 @@ at::Tensor knn_points(at::Tensor pointsa, at::Tensor pointsb, const int knn) {
 
   if (pointsa.type().is_cuda()) {
     knn_points_kernel_wrapper(pointsa.size(0), pointsa.size(1), pointsb.size(1), knn, 
-                              pointsa.data<float>(), pointsb.data<float>(), nnidx.data<int>());
+                              pointsa.data_ptr<float>(), pointsb.data_ptr<float>(), nnidx.data_ptr<int>());
   } else {
-    AT_CHECK(false, "CPU not supported");
+    TORCH_CHECK(false, "CPU not supported");
   }
 
   return nnidx;

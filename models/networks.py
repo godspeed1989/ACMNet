@@ -41,7 +41,7 @@ def gen_3dpoints(depth, K, levels=3, knn=[9], nsamples=[10000]):
     yy = torch.arange(0, h).view(-1, 1).repeat(1, w).float().cuda().view(1, 1, h, w).repeat(n, 1, 1, 1)
 
     assert len(knn) == levels and len(nsamples) == levels
-    
+
     spoints = []
     sidxs = []
     nnidxs = []
@@ -52,19 +52,19 @@ def gen_3dpoints(depth, K, levels=3, knn=[9], nsamples=[10000]):
         xy = gather_operation(xy, max_ind.view(n, -1).int())
         xx = xy[:, 0, :].view(n, 1, h//2**i, w//2**i)
         yy = xy[:, 1, :].view(n, 1, h//2**i, w//2**i)
-        
+
         mask = (depth > 0).int()
         new_mask = torch.zeros_like(mask.view(n, -1))
 
         # sampling
         vp_num = torch.sum(mask, (2,3)).min()
-        num_sam = nsamples[i-1]          
+        num_sam = nsamples[i-1]
         for j in range(n):
-            
+
             all_idx = torch.arange(mask.shape[2]*mask.shape[3]).reshape(1, -1).cuda().int()
             v_idx = all_idx[mask[j].reshape(1, -1)>0].reshape(1,-1)
             sample = torch.randperm(mask[j].sum())
-            
+
             if vp_num < num_sam:
                 v_idx = v_idx[:, sample[:int(vp_num)]]
             else:
@@ -76,10 +76,10 @@ def gen_3dpoints(depth, K, levels=3, knn=[9], nsamples=[10000]):
                 s_idx = torch.cat([s_idx, v_idx], 0)
 
             new_mask[j, v_idx[0].long()] = 1
-        
+
         # gather and 3d points
         xyd = torch.cat((xx, yy, depth), 1).view(n, 3, -1)
-        s_pts = gather_operation(xyd, s_idx).permute(0, 2, 1) 
+        s_pts = gather_operation(xyd, s_idx).permute(0, 2, 1)
         cxy = torch.zeros(n,1,3).float().to(depth.get_device())
         fxy = torch.ones(n,1,3).float().to(depth.get_device())
         cxy[:,0,0] = K[:,0,2]
@@ -97,7 +97,7 @@ def gen_3dpoints(depth, K, levels=3, knn=[9], nsamples=[10000]):
         nnidxs.append(nnidx)
         new_mask = new_mask.view(n, 1, h//2**i, w//2**i)
         masks.append(new_mask)
-    
+
     return spoints, sidxs, nnidxs, masks
 
 ##############################################################################
@@ -150,25 +150,25 @@ class CoAttnGPBlock(nn.Module):
 
         b, c, h, w = d_feat0.shape
         k = nnidxs.shape[2]
-        
+
         d_sfeat = gather_operation(d_feat0.view(b, c, -1), sidxs)
         r_sfeat = gather_operation(r_feat0.view(b, c, -1), sidxs)
 
-        nnpoints = grouping_operation(spoints, nnidxs) 
-        d_nnfeat = grouping_operation(d_sfeat, nnidxs) 
-        r_nnfeat = grouping_operation(r_sfeat, nnidxs) 
+        nnpoints = grouping_operation(spoints, nnidxs)
+        d_nnfeat = grouping_operation(d_sfeat, nnidxs)
+        r_nnfeat = grouping_operation(r_sfeat, nnidxs)
 
         points_dist = (nnpoints - spoints.view(b, 3, -1, 1)).view(b, 3, -1)
         d_feat_dist = (d_nnfeat - d_sfeat.view(b, c, -1, 1)).view(b, c, -1)
-        r_feat_dist = (r_nnfeat - r_sfeat.view(b, c, -1, 1)).view(b, c, -1) 
-        feats = torch.cat((d_feat_dist, r_feat_dist, points_dist), 1).permute(0, 2, 1) 
+        r_feat_dist = (r_nnfeat - r_sfeat.view(b, c, -1, 1)).view(b, c, -1)
+        feats = torch.cat((d_feat_dist, r_feat_dist, points_dist), 1).permute(0, 2, 1)
 
-        d_attn = torch.softmax(self.d_mlp(feats).view(b, -1, k, 1), 2).permute(0, 3, 1, 2) 
+        d_attn = torch.softmax(self.d_mlp(feats).view(b, -1, k, 1), 2).permute(0, 3, 1, 2)
         r_attn = torch.softmax(self.r_mlp(feats).view(b, -1, k, 1), 2).permute(0, 3, 1, 2)
 
         d_feat = torch.sum(d_attn * d_nnfeat, 3) + self.d_bias.view(1, c, 1)
         r_feat = torch.sum(r_attn * r_nnfeat, 3) + self.r_bias.view(1, c, 1)
-        
+
         d_feat_new = torch.zeros(b, c, h*w).to(d_feat.get_device())
         r_feat_new = torch.zeros(b, c, h*w).to(d_feat.get_device())
         for i in range(b):
@@ -273,29 +273,38 @@ class DCOMPNet(nn.Module):
         self.f_out = nn.Conv2d(32, 1, kernel_size=1, padding=0)
 
     def forward(self, depth, rgb, K):
-       
+        '''
+        depth [B,1,H,W]
+        rgb [B,3,H,W]
+        '''
         spoints, sidxs, nnidxs, masks = gen_3dpoints(depth, K, 3, self.knn, self.nsamples)
         d_feat0 = self.d_conv01(self.d_conv00(depth/self.scale))
         r_feat0 = self.r_conv01(self.r_conv00(rgb))
 
+        # x1 -> x2
         d_feat1, r_feat1 = self.cpblock10(d_feat0, r_feat0, spoints[0], sidxs[0], nnidxs[0], masks[0], self.nsamples[0])
         d_feat1, r_feat1 = self.cpblock11(d_feat1, r_feat1, spoints[0], sidxs[0], nnidxs[0], masks[0], self.nsamples[0])
+        # x2 -> x4
         d_feat2, r_feat2 = self.cpblock20(d_feat1, r_feat1, spoints[1], sidxs[1], nnidxs[1], masks[1], self.nsamples[1])
         d_feat2, r_feat2 = self.cpblock21(d_feat2, r_feat2, spoints[1], sidxs[1], nnidxs[1], masks[1], self.nsamples[1])
+        # x4 -> x8
         d_feat3, r_feat3 = self.cpblock30(d_feat2, r_feat2, spoints[2], sidxs[2], nnidxs[2], masks[2], self.nsamples[2])
         d_feat3, r_feat3 = self.cpblock31(d_feat3, r_feat3, spoints[2], sidxs[2], nnidxs[2], masks[2], self.nsamples[2])
 
+        # decode
+        # x8 SGFM - Symmetric Gated Fusion
         d_gate4 = torch.sigmoid(self.d_gate4(d_feat3))
         d_feat = self.d_resblock40(torch.cat([d_feat3, d_gate4*r_feat3], 1))
         d_feat = self.d_resblock41(d_feat)
         r_gate4 = torch.sigmoid(self.r_gate4(r_feat3))
         r_feat = self.r_resblock40(torch.cat([r_feat3, r_gate4*d_feat3], 1))
         r_feat = self.r_resblock41(r_feat)
-
+        # x8 -> x4
         f_feat = self.f_conv4_1(torch.cat([d_feat, r_feat], 1))
-        f_feat_res = F.interpolate(self.f_conv4_2(F.relu(f_feat)), scale_factor=2, mode='bilinear')
+        f_feat_res = F.interpolate(self.f_conv4_2(F.relu(f_feat)), scale_factor=2, mode='bilinear', align_corners=True)
         f_feat = self.f_deconv3(F.relu_(f_feat + f_feat_res))
 
+        # x4 SGFM
         d_ufeat3 = self.d_deconv3(d_feat)
         r_ufeat3 = self.r_deconv3(r_feat)
         d_gate3 = torch.sigmoid(self.d_gate3(d_ufeat3))
@@ -304,11 +313,12 @@ class DCOMPNet(nn.Module):
         r_gate3 = torch.sigmoid(self.r_gate3(r_ufeat3))
         r_feat = self.r_resblock50(torch.cat([r_feat2, r_ufeat3, r_gate3*d_feat2], 1))
         r_feat = self.r_resblock51(r_feat)
-
+        # x4 -> x2
         f_feat = self.f_conv3_1(torch.cat([d_feat, r_feat, f_feat], 1))
-        f_feat_res = F.interpolate(self.f_conv3_2(F.relu(f_feat)), scale_factor=2, mode='bilinear')
+        f_feat_res = F.interpolate(self.f_conv3_2(F.relu(f_feat)), scale_factor=2, mode='bilinear', align_corners=True)
         f_feat = self.f_deconv2(F.relu_(f_feat + f_feat_res))
 
+        # x2 SGFM
         d_ufeat2 = self.d_deconv2(d_feat)
         r_ufeat2 = self.r_deconv2(r_feat)
         d_gate2 = torch.sigmoid(self.d_gate2(d_ufeat2))
@@ -317,11 +327,12 @@ class DCOMPNet(nn.Module):
         r_gate2 = torch.sigmoid(self.r_gate2(r_ufeat2))
         r_feat = self.r_resblock60(torch.cat([r_feat1, r_ufeat2, r_gate2*d_feat1], 1))
         r_feat = self.r_resblock61(r_feat)
-
+        # x2 -> x1
         f_feat = self.f_conv2_1(torch.cat([d_feat, r_feat, f_feat], 1))
-        f_feat_res = F.interpolate(self.f_conv2_2(F.relu(f_feat)), scale_factor=2, mode='bilinear')
+        f_feat_res = F.interpolate(self.f_conv2_2(F.relu(f_feat)), scale_factor=2, mode='bilinear', align_corners=True)
         f_feat = self.f_deconv1(F.relu_(f_feat + f_feat_res))
 
+        # x1 End-integration
         d_ufeat1 = self.d_deconv1(d_feat)
         r_ufeat1 = self.r_deconv1(r_feat)
         d_gate1 = torch.sigmoid(self.d_gate1(d_ufeat1))
@@ -333,7 +344,7 @@ class DCOMPNet(nn.Module):
         r_feat = self.r_last_conv(r_feat)
 
         f_feat = self.f_conv1_1(torch.cat([d_feat, r_feat, f_feat], 1))
-        f_feat_res = F.interpolate(self.f_conv1_2(F.relu(f_feat)), scale_factor=2, mode='bilinear')
+        f_feat_res = F.interpolate(self.f_conv1_2(F.relu(f_feat)), scale_factor=2, mode='bilinear', align_corners=True)
         f_feat = F.relu_(f_feat + f_feat_res)
 
         d_out = self.d_out(d_feat)
@@ -341,5 +352,6 @@ class DCOMPNet(nn.Module):
 
         f_out = self.f_out(f_feat)
         out = [f_out, d_out, r_out]
-    
+
+        # pred = out[0]
         return out

@@ -26,7 +26,7 @@ class RandomImgAugment(object):
         dataset = inputs[3]
 
         if self.augment:
-            if random.random() < 0.5:	
+            if random.random() < 0.5:
                 img = Image.fromarray(img)
                 color_transform = transforms.Compose([transforms.ColorJitter(brightness=0.2,contrast=0.2,saturation=0.2,hue=0.0)])
                 img = color_transform(img)
@@ -42,7 +42,7 @@ class RandomImgAugment(object):
             if flip_prob >= 0.5:
                 img = img[:, ::-1, :]
             img = img / 255.0
-            img = np.transpose(img, (2, 0, 1))	
+            img = np.transpose(img, (2, 0, 1))
 
         if flip_prob >= 0.5:
             s_depth = s_depth[:, ::-1]
@@ -53,7 +53,7 @@ class RandomImgAugment(object):
         s_depth = s_depth.astype(np.float32) / 256.0
         if gt_depth is not None:
             gt_depth = np.expand_dims(gt_depth, axis=0)
-            gt_depth = gt_depth.astype(np.float32) / 256.0      
+            gt_depth = gt_depth.astype(np.float32) / 256.0
 
 
         return torch.tensor(img.copy()), torch.tensor(gt_depth.copy()), torch.tensor(s_depth.copy())

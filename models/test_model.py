@@ -14,14 +14,13 @@ class TESTModel(BaseModel):
     def initialize(self, opt):
         BaseModel.initialize(self, opt)
 
-        
         self.visual_names = ['sparse', 'pred', 'img']
-        
+
         self.model_names = ['G']
-  
+
         self.netG = networks.DCOMPNet(channels=opt.channels, knn=opt.knn, nsamples=opt.nsamples, scale=opt.scale)
         self.netG = networks.init_net(self.netG, init_type=opt.init_type, init_gain=opt.init_gain, gpu_ids=opt.gpu_ids, need_init=False)
-            
+
     def set_input(self, input):
 
         self.img = input['img'].to(self.device)
@@ -35,12 +34,12 @@ class TESTModel(BaseModel):
             c = 0
         sparse = self.sparse
         self.sparse = self.sparse[:, :, c:, :]
-        self.img = self.img[:, :, c:, :]
-        
+        self.img_in = self.img[:, :, c:, :]
+
         with torch.no_grad():
-            out = self.netG(self.sparse, self.img, self.K)
+            out = self.netG(self.sparse, self.img_in, self.K)
             self.pred = out[0]
-         
+
         if c != 0:
             pred = torch.zeros_like(sparse)
             pred[:, :, :c, :] = self.pred[0:1, :, 0:1, :]
